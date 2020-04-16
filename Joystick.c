@@ -51,46 +51,6 @@ uint16_t ButtonMap[16] = {
 	0x8000,
 };
 
-/*** Debounce ****
-The following is some -really bad- debounce code. I have a more robust library
-that I've used in other personal projects that would be a much better use
-here, especially considering that this is a stick indented for use with arcade
-fighters.
-
-This code exists solely to actually test on. This will eventually be replaced.
-**** Debounce ***/
-// Quick debounce hackery!
-// We're going to capture each port separately and store the contents into a 32-bit value.
-uint32_t pb_debounce = 0;
-uint32_t pd_debounce = 0;
-
-// We also need a port state capture. We'll use a 16-bit value for this.
-uint16_t bd_state = 0;
-
-// We'll also give us some useful macros here.
-#define PINB_DEBOUNCED ((bd_state >> 0) & 0xFF)
-#define PIND_DEBOUNCED ((bd_state >> 8) & 0xFF) 
-
-// So let's do some debounce! Lazily, and really poorly.
-void debounce_ports(void) {
-	// We'll shift the current value of the debounce down one set of 8 bits. We'll also read in the state of the pins.
-	pb_debounce = (pb_debounce << 8) + PINB;
-	pd_debounce = (pd_debounce << 8) + PIND;
-
-	// We'll then iterate through a simple for loop.
-	for (int i = 0; i < 8; i++) {
-		if ((pb_debounce & (0x1010101 << i)) == (0x1010101 << i)) // wat
-			bd_state |= (1 << i);
-		else if ((pb_debounce & (0x1010101 << i)) == (0))
-			bd_state &= ~(uint16_t)(1 << i);
-
-		if ((pd_debounce & (0x1010101 << i)) == (0x1010101 << i))
-			bd_state |= (1 << (8 + i));
-		else if ((pd_debounce & (0x1010101 << i)) == (0))
-			bd_state &= ~(uint16_t)(1 << (8 + i));
-	}
-}
-
 // Main entry point.
 int main(void) {
 	// We'll start by performing hardware and peripheral setup.
@@ -106,7 +66,6 @@ int main(void) {
 		USB_USBTask();
 		// As part of this loop, we'll also run our bad debounce code.
 		// Optimally, we should replace this with something that fires on a timer.
-		debounce_ports();
 	}
 }
 
@@ -126,6 +85,19 @@ void SetupHardware(void) {
 
 	DDRB  &= ~0xFF;
 	PORTB |=  0xFF;
+    
+    DDRF &= ~0xF0;  //A0~A3
+    PORTF |= 0xF0;  //A0~A3
+    
+    DDRC &= ~(1<<6);  //5
+    PORTC |= (1<<6);  //5
+    
+    DDRD &= ~(1<<7);  //6
+    PORTD |= (1<<7);  //6
+
+    DDRE &= ~(1<<6);  //7
+    PORTE |= (1<<6);  //7
+    
 	// The USB stack should be initialized last.
 	USB_Init();
 }
@@ -243,8 +215,15 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 	/* Clear the report contents */
 	memset(ReportData, 0, sizeof(USB_JoystickReport_Input_t));
 
-	buf_button   = (~PIND_DEBOUNCED & 0xFF) << (~PINB_DEBOUNCED & 0x08 ? 8 : 0);
-	buf_joystick = (~PINB_DEBOUNCED & 0xFF);
+	buf_button   = 0;
+    if ( (PIND & (1<<3)) == 0 ) buf_button |= SWITCH_L; //TX
+    if ( (PIND & (1<<2)) == 0 ) buf_button |= SWITCH_R; //RX
+    if ( (PIND & (1<<1)) == 0 ) buf_button |= SWITCH_A; //2
+    if ( (PIND & (1<<0)) == 0 ) buf_button |= SWITCH_B; //3
+    if ( (PIND & (1<<4)) == 0 ) buf_button |= SWITCH_X; //4
+    if ( (PINC & (1<<6)) == 0 ) buf_button |= SWITCH_Y; //5
+    
+	buf_joystick = (~PINF & 0xF0);
 
 	for (int i = 0; i < 16; i++) {
 		if (buf_button & (1 << i))
@@ -264,7 +243,10 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 		ReportData->LY = 255;
 	else
 		ReportData->LY = 128;
-
+    
+    ReportData->RX = 128;
+    ReportData->RY = 128;
+/*
 	switch(buf_joystick & 0xF0) {
 		case 0x80: // Top
 			ReportData->HAT = 0x00;
@@ -292,5 +274,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 			break;
 		default:
 			ReportData->HAT = 0x08;
-	}
+	}*/
+    
+    ReportData->HAT = 0x08;
 }
